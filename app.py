@@ -88,13 +88,14 @@ def actualizar_pedido_en_sheet(pedido_actualizado):
         
         historial_str = json.dumps(pedido_actualizado.get('historial', []))
         
-        sheet.update(f'G{fila_indice}:H{fila_indice}', [[
+        # CAMBIO CLAVE: Se actualiza desde la F (Enlace_Archivo) hasta la H
+        sheet.update(f'F{fila_indice}:H{fila_indice}', [[
+            pedido_actualizado.get('Enlace_Archivo', ''),
             pedido_actualizado['Estado'],
             historial_str
         ]])
     except ValueError:
         st.error("Error: No se encontró el pedido en la base de datos.")
-
 # ==========================================
 # SISTEMA DE USUARIOS LOCAL (Temporal para el prototipo)
 # ==========================================
@@ -198,7 +199,7 @@ if seleccion == "Área de Compras":
                 time.sleep(2)  # <--- Corregido: Da tiempo para leer el mensaje
                 st.rerun()     # <--- Corregido: Recarga para aplicar la limpieza y bajar los datos nuevos
 
-    with tab2:
+  with tab2:
         rechazados = [p for p in pedidos if p.get("Estado") == "Rechazado"]
         if not rechazados:
             st.info("No hay pedidos rechazados.")
@@ -208,35 +209,68 @@ if seleccion == "Área de Compras":
                     for h in p.get("historial", []):
                         if h["accion"] in ["Rechazo", "Comentario"]:
                             st.info(f"**{h['fecha']} - {h['usuario']}:** {h['detalle']}")
-                    if st.button("Reenviar a revisión", key=f"reenviar_{p.get('ID', '?')}"):
-                        p["Estado"] = "Pendiente"
-                        p["historial"].append({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": st.session_state.usuario, "accion": "Reenvío", "detalle": "Pedido ajustado"})
-                        actualizar_pedido_en_sheet(p)
-                        st.success("Pedido reenviado.")
-                        time.sleep(1)
-                        st.rerun()
+                    
+                    st.write("---")
+                    st.markdown("**🔄 Corregir y Reenviar Pedido**")
+                    
+                    # Formulario para subir la corrección
+                    with st.form(key=f"form_reenvio_{p.get('ID', '?')}"):
+                        nuevo_comentario = st.text_area("¿Qué cambios realizaste? (Ej. 'Se actualizó la cotización con el descuento'):")
+                        nuevo_archivo = st.file_uploader("Sube el nuevo archivo corregido (PDF/Excel)", type=["pdf", "xlsx", "xls"])
+                        
+                        btn_reenviar = st.form_submit_button("Subir archivo y Reenviar a Gerencia")
+                        
+                        if btn_reenviar:
+                            if nuevo_comentario and nuevo_archivo:
+                                with st.spinner('Subiendo nuevo documento a Drive y actualizando registro...'):
+                                    nuevo_enlace = subir_a_drive(nuevo_archivo)
+                                    
+                                    if nuevo_enlace:
+                                        p["Enlace_Archivo"] = nuevo_enlace
+                                        p["Estado"] = "Pendiente (Reenviado)"
+                                        p["historial"].append({
+                                            "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                                            "usuario": st.session_state.usuario, 
+                                            "accion": "Reenvío", 
+                                            "detalle": f"NUEVO ARCHIVO ADJUNTO: {nuevo_comentario}"
+                                        })
+                                        actualizar_pedido_en_sheet(p)
+                                        st.success("¡Pedido actualizado y reenviado exitosamente!")
+                                        time.sleep(2)
+                                        st.rerun()
+                            else:
+                                st.warning("⚠️ Debes adjuntar el nuevo archivo y escribir un comentario para poder reenviar.")
 
 # ==========================================
 # VISTA: GERENCIA
 # ==========================================
-# ==========================================
-# VISTA: GERENCIA
-# ==========================================
+
 elif seleccion == "Pedidos por Autorizar":
     st.title("✅ Autorización de Pedidos")
-    pendientes = [p for p in pedidos if p.get("Estado") == "Pendiente"]
+    
+    # AHORA BUSCAMOS TANTO LOS NUEVOS COMO LOS REENVIADOS
+    pendientes = [p for p in pedidos if p.get("Estado") in ["Pendiente", "Pendiente (Reenviado)"]]
     
     if not pendientes:
         st.success("No hay pedidos pendientes de revisión.")
     else:
         for pedido in pendientes:
-            st.markdown(f"### Pedido #{pedido.get('ID', '?')} - {pedido.get('Proveedor', '?')}")
+            # SEÑAL VISUAL DE ADVERTENCIA PARA GERENCIA
+            alerta_reenvio = " ⚠️ *(REENVIADO CORREGIDO)*" if pedido.get("Estado") == "Pendiente (Reenviado)" else ""
+            st.markdown(f"### Pedido #{pedido.get('ID', '?')} - {pedido.get('Proveedor', '?')}{alerta_reenvio}")
+            
             st.write(f"**Monto:** ${float(pedido.get('Monto', 0)):,.2f} | **Procedencia:** {pedido.get('Procedencia', '?')} | **Fecha:** {pedido.get('Fecha', '?')}")
             
-            # --- NUEVO: VISOR DE DOCUMENTO INTEGRADO ---
+            # Mostrar a gerencia qué fue lo que se corrigió en el historial rápido
+            if pedido.get("Estado") == "Pendiente (Reenviado)":
+                with st.expander("Ver notas de la corrección anterior"):
+                    for mov in pedido.get("historial", []):
+                        if mov["accion"] in ["Rechazo", "Reenvío"]:
+                            st.write(f"- **{mov['accion']} ({mov['usuario']}):** {mov['detalle']}")
+
+            # --- VISOR DE DOCUMENTO INTEGRADO ---
             enlace = str(pedido.get('Enlace_Archivo', '#'))
             if "drive.google.com" in enlace:
-                # Transforma el enlace normal de Drive en un visor incrustado
                 enlace_preview = enlace.replace("/view", "/preview").split("?")[0]
                 st.components.v1.iframe(enlace_preview, height=600, scrolling=True)
             else:
@@ -265,12 +299,13 @@ elif seleccion == "Pedidos por Autorizar":
                         "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
                         "usuario": st.session_state.usuario, 
                         "accion": "Rechazo", 
-                        "detalle": comentario or "Rechazado sin comentarios"
+                        "detalle": comentario or "Rechazado de nuevo"
                     }
                     pedido["historial"].append(nuevo_mov)
                     actualizar_pedido_en_sheet(pedido)
                     st.rerun()
             st.divider()
+
 # ==========================================
 # VISTA: REPORTES
 # ==========================================
