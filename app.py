@@ -117,7 +117,7 @@ if not st.session_state.logged_in:
     
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        with st.form("login_form"):
+        with st.form("form_pedido", clear_on_submit=True):
             st.subheader("Iniciar Sesión")
             usuario_input = st.text_input("Usuario")
             password_input = st.text_input("Contraseña", type="password")
