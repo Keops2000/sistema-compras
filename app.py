@@ -67,12 +67,17 @@ def subir_a_drive(archivo):
 
 def cargar_pedidos():
     registros = sheet.get_all_records()
+    pedidos_limpios = []
     for r in registros:
-        if isinstance(r.get('Historial_JSON'), str) and r['Historial_JSON']:
-            r['historial'] = json.loads(r['Historial_JSON'])
+        # Esta línea mágica quita los espacios invisibles de los títulos del Excel
+        p = {str(k).strip(): v for k, v in r.items()}
+        
+        if isinstance(p.get('Historial_JSON'), str) and p['Historial_JSON']:
+            p['historial'] = json.loads(p['Historial_JSON'])
         else:
-            r['historial'] = []
-    return registros
+            p['historial'] = []
+        pedidos_limpios.append(p)
+    return pedidos_limpios
 
 def actualizar_pedido_en_sheet(pedido_actualizado):
     """Busca el ID en la hoja y actualiza la fila completa"""
