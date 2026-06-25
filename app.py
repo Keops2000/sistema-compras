@@ -10,14 +10,13 @@ import io
 import urllib.request
 import base64
 import os
-import extra_streamlit_components as stx  # Librería para manejo de Cookies
+import extra_streamlit_components as stx
 
 # Configuración de página
 st.set_page_config(page_title="Sistema de Compras - Abastecedora Keops 2000", layout="wide")
 
-# Inicializar el gestor de cookies
+# Inicializar el gestor de cookies (CORREGIDO)
 cookie_manager = stx.CookieManager(key="keops_cookie_manager")
-# Pequeña pausa técnica indispensable para dar tiempo al navegador de entregar las cookies
 time.sleep(0.2)
 
 # ==========================================
@@ -36,16 +35,13 @@ def conectar_google():
     gc = gspread.authorize(creds)
     workbook = gc.open(NOMBRE_HOJA_SHEETS)
     
-    # Conectar a la pestaña de pedidos (primera pestaña)
     sheet_pedidos = workbook.sheet1
     
-    # Conectar o crear automáticamente la pestaña de Usuarios para persistencia real
     try:
         sheet_usuarios = workbook.worksheet("Usuarios")
     except gspread.exceptions.WorksheetNotFound:
         sheet_usuarios = workbook.add_worksheet(title="Usuarios", rows="100", cols="3")
         sheet_usuarios.append_row(["usuario", "password", "rol"])
-        # Insertar usuario administrador maestro inicial
         sheet_usuarios.append_row(["admin", "123", "Admin"])
     
     drive_service = build('drive', 'v3', credentials=creds)
@@ -58,7 +54,6 @@ sheet, sheet_usuarios, drive_service = conectar_google()
 # FUNCIONES DE CONTROL DE BASE DE DATOS
 # ==========================================
 def subir_a_drive(archivo):
-    """Sube el archivo a Drive usando Google Apps Script"""
     file_bytes = archivo.getvalue()
     base64_encoded = base64.b64encode(file_bytes).decode('utf-8')
     
@@ -110,11 +105,9 @@ def actualizar_pedido_en_sheet(pedido_actualizado):
         st.error("Error: No se encontró el pedido en la base de datos.")
 
 def cargar_usuarios_cloud():
-    """Descarga los usuarios directamente desde Google Sheets"""
     return sheet_usuarios.get_all_records()
 
 def registrar_usuario_cloud(nuevo_user, nuevo_pass, nuevo_rol):
-    """Registra de forma permanente un nuevo usuario en la nube"""
     usuarios = cargar_usuarios_cloud()
     if any(str(u['usuario']).strip().lower() == nuevo_user.lower() for u in usuarios):
         return False
@@ -122,14 +115,13 @@ def registrar_usuario_cloud(nuevo_user, nuevo_pass, nuevo_rol):
     return True
 
 # ==========================================
-# VERIFICACIÓN AUTOMÁTICA DE COOKIES (REMEMBER ME)
+# VERIFICACIÓN AUTOMÁTICA DE COOKIES
 # ==========================================
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.usuario = ''
     st.session_state.rol = ''
 
-# Intentar recuperar sesión desde las cookies si la sesión de Streamlit está vacía
 if not st.session_state.logged_in:
     try:
         c_user = cookie_manager.get("keops_user")
@@ -155,10 +147,7 @@ if not st.session_state.logged_in:
             st.subheader("Iniciar Sesión")
             usuario_input = st.text_input("Usuario").strip()
             password_input = st.text_input("Contraseña", type="password").strip()
-            
-            # Casilla para activar las Cookies de persistencia
             recordar_sesion = st.checkbox("Mantener sesión iniciada en este equipo")
-            
             submit = st.form_submit_button("Ingresar", type="primary", use_container_width=True)
             
             if submit:
@@ -169,12 +158,12 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.usuario = usuario_valido['usuario']
                     st.session_state.rol = usuario_valido['rol']
-                  
-                    # Si seleccionó recordar, guardar cookies válidas por 30 días
-if recordar_sesion:
-    cookie_manager.set("keops_user", usuario_valido['usuario'], max_age=2592000, key="cookie_user")
-    cookie_manager.set("keops_rol", usuario_valido['rol'], max_age=2592000, key="cookie_rol")
-    
+                    
+                    if recordar_sesion:
+                        # CORREGIDO: Se agregaron las llaves (keys) únicas
+                        cookie_manager.set("keops_user", usuario_valido['usuario'], max_age=2592000, key="cookie_user")
+                        cookie_manager.set("keops_rol", usuario_valido['rol'], max_age=2592000, key="cookie_rol")
+                    
                     st.success("¡Acceso concedido!")
                     time.sleep(1)
                     st.rerun()
@@ -202,7 +191,7 @@ if st.sidebar.button("🚪 Cerrar Sesión"):
     st.session_state.logged_in = False
     st.session_state.usuario = ''
     st.session_state.rol = ''
-    # Borrar las cookies físicas para destruir la sesión permanentemente
+    # CORREGIDO: Se agregaron las llaves (keys) únicas
     cookie_manager.delete("keops_user", key="borrar_user")
     cookie_manager.delete("keops_rol", key="borrar_rol")
     st.rerun()
@@ -386,7 +375,6 @@ elif seleccion == "⚙️ Gestión de Usuarios" and st.session_state.rol == "Adm
         st.subheader("📋 Usuarios Activos")
         lista_usuarios = cargar_usuarios_cloud()
         df_usuarios = pd.DataFrame(lista_usuarios)
-        # Ocultamos la columna password por privacidad visual en el panel
         if not df_usuarios.empty and 'password' in df_usuarios.columns:
             df_usuarios['password'] = "••••••••"
         st.dataframe(df_usuarios, use_container_width=True)
