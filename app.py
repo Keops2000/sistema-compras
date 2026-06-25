@@ -10,6 +10,7 @@ import io
 import urllib.request
 import base64
 import os
+import re  # <--- NUEVO: Herramienta para forzar la lectura del ID de Google Drive
 import extra_streamlit_components as stx
 
 # Configuración de página
@@ -51,7 +52,7 @@ def conectar_google():
 sheet, sheet_usuarios, drive_service = conectar_google()
 
 # ==========================================
-# FUNCIONES DE CONTROL DE BASE DE DATOS
+# FUNCIONES DE CONTROL
 # ==========================================
 def subir_a_drive(archivo):
     file_bytes = archivo.getvalue()
@@ -114,8 +115,23 @@ def registrar_usuario_cloud(nuevo_user, nuevo_pass, nuevo_rol):
     sheet_usuarios.append_row([nuevo_user, nuevo_pass, nuevo_rol])
     return True
 
+# --- NUEVO: FUNCIÓN INFALIBLE PARA MOSTRAR EL VISOR DE PDF/EXCEL ---
+def mostrar_visor_incrustado(enlace):
+    enlace_str = str(enlace)
+    # Busca el ID del archivo sin importar si es de docs.google o drive.google
+    match = re.search(r'/d/([a-zA-Z0-9_-]+)', enlace_str)
+    if not match:
+        match = re.search(r'id=([a-zA-Z0-9_-]+)', enlace_str)
+        
+    if match:
+        file_id = match.group(1)
+        enlace_preview = f"https://drive.google.com/file/d/{file_id}/preview"
+        st.components.v1.iframe(enlace_preview, height=600, scrolling=True)
+    else:
+        st.markdown(f"[📄 **Abrir documento adjunto**]({enlace_str})")
+
 # ==========================================
-# VERIFICACIÓN AUTOMÁTICA DE COOKIES
+# SESIÓN Y COOKIES
 # ==========================================
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -135,7 +151,7 @@ if not st.session_state.logged_in:
         pass
 
 # ==========================================
-# PANTALLA: LOGIN FORMAL
+# LOGIN
 # ==========================================
 if not st.session_state.logged_in:
     st.title("🔒 Acceso al Sistema de Compras")
@@ -171,10 +187,10 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ==========================================
-# MENÚ LATERAL DE NAVEGACIÓN
+# MENÚ LATERAL
 # ==========================================
 st.sidebar.title(f"👤 Bienvenido, {st.session_state.usuario}")
-st.sidebar.sidebar_notation = st.sidebar.markdown(f"**Rol actual:** {st.session_state.rol}")
+st.sidebar.markdown(f"**Rol actual:** {st.session_state.rol}")
 
 opciones_menu = []
 if st.session_state.rol == "Compras":
@@ -302,12 +318,8 @@ elif seleccion == "Pedidos por Autorizar":
                         if mov["accion"] in ["Rechazo", "Reenvío"]:
                             st.write(f"- **{mov['accion']} ({mov['usuario']}):** {mov['detalle']}")
 
-            enlace = str(pedido.get('Enlace_Archivo', '#'))
-            if "drive.google.com" in enlace:
-                enlace_preview = enlace.replace("/view", "/preview").split("?")[0]
-                st.components.v1.iframe(enlace_preview, height=600, scrolling=True)
-            else:
-                st.markdown(f"[📄 **Abrir documento adjunto**]({enlace})")
+            # Llama a la nueva función infalible
+            mostrar_visor_incrustado(pedido.get('Enlace_Archivo', '#'))
             
             comentario = st.text_area("Comentarios:", key=f"com_{pedido.get('ID', '?')}")
             col_aut, col_rech = st.columns(2)
@@ -347,7 +359,6 @@ elif seleccion == "Reportes de Movimientos":
     if not pedidos:
         st.info("No hay datos en la base de datos.")
     else:
-        # Estructurar pedidos en un DataFrame para facilitar filtros y modelado de gráficas
         df_pedidos = pd.DataFrame(pedidos)
         df_pedidos['Monto'] = pd.to_numeric(df_pedidos['Monto'], errors='coerce').fillna(0.0)
         df_pedidos['Fecha_DT'] = pd.to_datetime(df_pedidos['Fecha'], errors='coerce')
@@ -383,7 +394,6 @@ elif seleccion == "Reportes de Movimientos":
                 estados_disponibles = ["Todos"] + list(df_pedidos['Estado'].unique())
                 estado_sel = st.selectbox("Estado actual:", estados_disponibles, key="filt_estado_select")
             
-            # Proceso de filtrado del DataFrame
             df_filtrado = df_pedidos.copy()
             if isinstance(rango_fecha, (list, tuple)) and len(rango_fecha) == 2:
                 df_filtrado = df_filtrado[(df_filtrado['Fecha_DT'].dt.date >= rango_fecha[0]) & (df_filtrado['Fecha_DT'].dt.date <= rango_fecha[1])]
@@ -416,7 +426,6 @@ elif seleccion == "Reportes de Movimientos":
                             st.write(f"- *{mov.get('fecha', '')}* | **{mov.get('usuario', '')}** ({mov.get('accion', '')}): {mov.get('detalle', '')}")
 
         with tab_dashboard:
-            # El "monto gastado" se calcula sobre lo que la gerencia ya dio por "Autorizado"
             df_gastos = df_pedidos[df_pedidos['Estado'] == 'Autorizado'].copy()
             
             if df_gastos.empty:
@@ -425,7 +434,6 @@ elif seleccion == "Reportes de Movimientos":
                 st.subheader("💰 Reporte Periódico de Montos Gastados")
                 df_gastos['Mes'] = df_gastos['Fecha_DT'].dt.to_period('M').astype(str)
                 
-                # Tabla de resumen agrupado periódico
                 df_resumen = df_gastos.groupby(['Mes', 'Proveedor', 'Procedencia'])['Monto'].sum().reset_index()
                 df_resumen.columns = ['Período (Mes)', 'Proveedor', 'Procedencia (Destino)', 'Total Gastado ($)']
                 st.markdown("**Tabla Analítica de Salidas Corporativas:**")
@@ -481,4 +489,3 @@ elif seleccion == "⚙️ Gestión de Usuarios" and st.session_state.rol == "Adm
         if not df_usuarios.empty and 'password' in df_usuarios.columns:
             df_usuarios['password'] = "••••••••"
         st.dataframe(df_usuarios, use_container_width=True)
-
