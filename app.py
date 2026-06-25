@@ -15,7 +15,7 @@ import extra_streamlit_components as stx
 # Configuración de página
 st.set_page_config(page_title="Sistema de Compras - Abastecedora Keops 2000", layout="wide")
 
-# Inicializar el gestor de cookies (CORREGIDO)
+# Inicializar el gestor de cookies
 cookie_manager = stx.CookieManager(key="keops_cookie_manager")
 time.sleep(0.2)
 
@@ -160,7 +160,6 @@ if not st.session_state.logged_in:
                     st.session_state.rol = usuario_valido['rol']
                     
                     if recordar_sesion:
-                        # CORREGIDO: Se agregaron las llaves (keys) únicas
                         cookie_manager.set("keops_user", usuario_valido['usuario'], max_age=2592000, key="cookie_user")
                         cookie_manager.set("keops_rol", usuario_valido['rol'], max_age=2592000, key="cookie_rol")
                     
@@ -175,7 +174,7 @@ if not st.session_state.logged_in:
 # MENÚ LATERAL DE NAVEGACIÓN
 # ==========================================
 st.sidebar.title(f"👤 Bienvenido, {st.session_state.usuario}")
-st.sidebar.markdown(f"**Rol actual:** {st.session_state.rol}")
+st.sidebar.sidebar_notation = st.sidebar.markdown(f"**Rol actual:** {st.session_state.rol}")
 
 opciones_menu = []
 if st.session_state.rol == "Compras":
@@ -191,7 +190,6 @@ if st.sidebar.button("🚪 Cerrar Sesión"):
     st.session_state.logged_in = False
     st.session_state.usuario = ''
     st.session_state.rol = ''
-    # CORREGIDO: Se agregaron las llaves (keys) únicas
     cookie_manager.delete("keops_user", key="borrar_user")
     cookie_manager.delete("keops_rol", key="borrar_rol")
     st.rerun()
@@ -203,7 +201,7 @@ pedidos = cargar_pedidos()
 # ==========================================
 if seleccion == "Área de Compras":
     st.title("🛒 Área de Compras")
-    tab1, tab2 = st.tabs(["📝 Crear Nuevo Pedido", "⚠️ Pedidos Rechazados"])
+    tab1, tab_notif, tab2 = st.tabs(["📝 Crear Nuevo Pedido", "🔔 Pedidos Aprobados", "⚠️ Pedidos Rechazados"])
     
     with tab1:
         with st.form("form_pedido", clear_on_submit=True): 
@@ -229,6 +227,20 @@ if seleccion == "Área de Compras":
                 st.success("¡Pedido enviado y respaldado en la nube exitosamente!")
                 time.sleep(2)
                 st.rerun()
+
+    with tab_notif:
+        st.subheader("📦 Notificaciones de Aprobación Recientes")
+        aprobados = [p for p in pedidos if p.get("Estado") == "Autorizado"]
+        if not aprobados:
+            st.info("No hay pedidos autorizados recientemente.")
+        else:
+            for p in reversed(aprobados):
+                with st.expander(f"🟢 Pedido #{p.get('ID', '?')} - {p.get('Proveedor', '?')} | ¡APROBADO!"):
+                    st.success(f"El pedido por un monto de **${float(p.get('Monto', 0)):,.2f}** procedente de **{p.get('Procedencia', '?')}** ha sido autorizado con éxito.")
+                    st.markdown("**Notas de Autorización Gerencial:**")
+                    for h in p.get("historial", []):
+                        if h["accion"] == "Autorización":
+                            st.write(f"- *{h['fecha']}* | Autorizado por **{h['usuario']}**: {h['detalle']}")
 
     with tab2:
         rechazados = [p for p in pedidos if p.get("Estado") == "Rechazado"]
@@ -325,22 +337,113 @@ elif seleccion == "Pedidos por Autorizar":
             st.divider()
 
 # ==========================================
-# VISTA: REPORTES CONTABLES
+# VISTA: REPORTES CONTABLES Y DASHBOARDS
 # ==========================================
 elif seleccion == "Reportes de Movimientos":
-    st.title("📊 Reportes y Auditoría")
-    st.markdown("Si deseas extraer los datos para contabilidad, abre la base de datos directa en Google Sheets:")
-    st.info("💡 **Abre tu Google Drive y busca el archivo 'Base_Pedidos_Keops' para ver la tabla completa y descargarla en Excel.**")
+    st.title("📊 Reportes, Filtros Avanzados y Gráficas")
+    st.markdown("Para contabilidad general externa, abre la base de datos de Google Sheets directamente:")
+    st.info("💡 **Abre tu Google Drive y busca el archivo 'Base_Pedidos_Keops' para ver las tablas completas en crudo.**")
     
     if not pedidos:
-        st.info("No hay datos.")
+        st.info("No hay datos en la base de datos.")
     else:
-        for p in reversed(pedidos):
-            estado = str(p.get('Estado', 'Pendiente')).strip() 
-            color = "🟢" if estado == 'Autorizado' else "🔴" if estado == 'Rechazado' else "🟡"
-            with st.expander(f"{color} #{p.get('ID', '?')} | {p.get('Proveedor', '?')} | ${float(p.get('Monto', 0)):,.2f} | {p.get('Procedencia', '?')}"):
-                for mov in p.get("historial", []):
-                    st.write(f"- *{mov['fecha']}* | **{mov['usuario']}** ({mov['accion']}): {mov['detalle']}")
+        # Estructurar pedidos en un DataFrame para facilitar filtros y modelado de gráficas
+        df_pedidos = pd.DataFrame(pedidos)
+        df_pedidos['Monto'] = pd.to_numeric(df_pedidos['Monto'], errors='coerce').fillna(0.0)
+        df_pedidos['Fecha_DT'] = pd.to_datetime(df_pedidos['Fecha'], errors='coerce')
+        df_pedidos['Estado'] = df_pedidos['Estado'].astype(str).str.strip()
+        df_pedidos['Proveedor'] = df_pedidos['Proveedor'].astype(str).str.strip()
+        df_pedidos['Procedencia'] = df_pedidos['Procedencia'].astype(str).str.strip()
+        df_pedidos['Fecha_Corta'] = df_pedidos['Fecha_DT'].dt.strftime('%Y-%m-%d')
+
+        tab_lista, tab_dashboard = st.tabs(["📋 Historial con Filtros Dinómicos", "📈 Dashboard Financiero de Gastos"])
+        
+        with tab_lista:
+            st.subheader("🔍 Panel de Filtros")
+            col_f1, col_f2, col_f3 = st.columns(3)
+            
+            with col_f1:
+                fechas_validas = df_pedidos['Fecha_DT'].dropna()
+                if not fechas_validas.empty:
+                    min_date = fechas_validas.min().date()
+                    max_date = fechas_validas.max().date()
+                    rango_fecha = st.date_input("Rango de Fechas del Pedido:", [min_date, max_date], key="filt_date_range")
+                else:
+                    rango_fecha = []
+            
+            with col_f2:
+                min_monto = float(df_pedidos['Monto'].min())
+                max_monto = float(df_pedidos['Monto'].max())
+                if min_monto < max_monto:
+                    rango_monto = st.slider("Importe del Pedido ($):", min_monto, max_monto, (min_monto, max_monto), key="filt_monto_slider")
+                else:
+                    rango_monto = (min_monto, min_monto + 100.0)
+            
+            with col_f3:
+                estados_disponibles = ["Todos"] + list(df_pedidos['Estado'].unique())
+                estado_sel = st.selectbox("Estado actual:", estados_disponibles, key="filt_estado_select")
+            
+            # Proceso de filtrado del DataFrame
+            df_filtrado = df_pedidos.copy()
+            if isinstance(rango_fecha, (list, tuple)) and len(rango_fecha) == 2:
+                df_filtrado = df_filtrado[(df_filtrado['Fecha_DT'].dt.date >= rango_fecha[0]) & (df_filtrado['Fecha_DT'].dt.date <= rango_fecha[1])]
+            
+            df_filtrado = df_filtrado[(df_filtrado['Monto'] >= rango_monto[0]) & (df_filtrado['Monto'] <= rango_monto[1])]
+            
+            if estado_sel != "Todos":
+                df_filtrado = df_filtrado[df_filtrado['Estado'] == estado_sel]
+                
+            st.markdown(f"**Registros que coinciden con la búsqueda:** {len(df_filtrado)}")
+            st.write("---")
+            
+            pedidos_filtrados_dict = df_filtrado.to_dict('records')
+            if not pedidos_filtrados_dict:
+                st.warning("No hay pedidos guardados que cumplan las condiciones del filtro.")
+            else:
+                for p in reversed(pedidos_filtrados_dict):
+                    est = str(p.get('Estado', 'Pendiente')).strip() 
+                    color_est = "🟢" if est == 'Autorizado' else "🔴" if est == 'Rechazado' else "🟡"
+                    
+                    with st.expander(f"{color_est} #{p.get('ID', '?')} | {p.get('Proveedor', '?')} | ${float(p.get('Monto', 0)):,.2f} | {p.get('Procedencia', '?')}"):
+                        historial_lista = p.get("historial", [])
+                        if not historial_lista and isinstance(p.get('Historial_JSON'), str) and p['Historial_JSON']:
+                            try:
+                                historial_lista = json.loads(p['Historial_JSON'])
+                            except:
+                                historial_lista = []
+                                
+                        for mov in historial_lista:
+                            st.write(f"- *{mov.get('fecha', '')}* | **{mov.get('usuario', '')}** ({mov.get('accion', '')}): {mov.get('detalle', '')}")
+
+        with tab_dashboard:
+            # El "monto gastado" se calcula sobre lo que la gerencia ya dio por "Autorizado"
+            df_gastos = df_pedidos[df_pedidos['Estado'] == 'Autorizado'].copy()
+            
+            if df_gastos.empty:
+                st.info("💡 El Dashboard de Egresos se alimenta de pedidos en estado **'Autorizado'**. Actualmente no hay gastos registrados en la base de datos.")
+            else:
+                st.subheader("💰 Reporte Periódico de Montos Gastados")
+                df_gastos['Mes'] = df_gastos['Fecha_DT'].dt.to_period('M').astype(str)
+                
+                # Tabla de resumen agrupado periódico
+                df_resumen = df_gastos.groupby(['Mes', 'Proveedor', 'Procedencia'])['Monto'].sum().reset_index()
+                df_resumen.columns = ['Período (Mes)', 'Proveedor', 'Procedencia (Destino)', 'Total Gastado ($)']
+                st.markdown("**Tabla Analítica de Salidas Corporativas:**")
+                st.dataframe(df_resumen.style.format({'Total Gastado ($)': '${:,.2f}'}), use_container_width=True)
+                
+                st.write("---")
+                st.subheader("📊 Gráficas de Control y Variación Temporal")
+                
+                col_g1, col_g2 = st.columns(2)
+                with col_g1:
+                    st.markdown("**Variación de Montos por Fecha y Proveedor**")
+                    df_prov = df_gastos.groupby(['Fecha_Corta', 'Proveedor'])['Monto'].sum().reset_index()
+                    st.bar_chart(df_prov, x='Fecha_Corta', y='Monto', color='Proveedor', use_container_width=True)
+                    
+                with col_g2:
+                    st.markdown("**Variación de Montos por Fecha y Procedencia (Destino)**")
+                    df_proc = df_gastos.groupby(['Fecha_Corta', 'Procedencia'])['Monto'].sum().reset_index()
+                    st.bar_chart(df_proc, x='Fecha_Corta', y='Monto', color='Procedencia', use_container_width=True)
 
 # ==========================================
 # VISTA NUEVA: GESTIÓN DE USUARIOS (SÓLO ADMIN)
@@ -378,3 +481,4 @@ elif seleccion == "⚙️ Gestión de Usuarios" and st.session_state.rol == "Adm
         if not df_usuarios.empty and 'password' in df_usuarios.columns:
             df_usuarios['password'] = "••••••••"
         st.dataframe(df_usuarios, use_container_width=True)
+
