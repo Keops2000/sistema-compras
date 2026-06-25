@@ -36,7 +36,7 @@ sheet, drive_service = conectar_google()
 def subir_a_drive(archivo):
     """Sube el archivo a Drive y retorna el enlace público"""
     file_metadata = {'name': archivo.name, 'parents': [ID_CARPETA_DRIVE]}
-    media = MediaIoBaseUpload(io.BytesIO(archivo.getvalue()), mimetype=archivo.type, resumable=True)
+    media = MediaIoBaseUpload(io.BytesIO(archivo.getvalue()), mimetype=archivo.type, resumable=False)
     file = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
     
     # Dar permiso de lectura general al archivo para que gerencia lo pueda ver al darle clic
