@@ -16,7 +16,7 @@ import extra_streamlit_components as stx  # Librería para manejo de Cookies
 st.set_page_config(page_title="Sistema de Compras - Abastecedora Keops 2000", layout="wide")
 
 # Inicializar el gestor de cookies
-cookie_manager = stx.get_cookie_manager(key="keops_cookie_manager")
+cookie_manager = stx.CookieManager(key="keops_cookie_manager")
 # Pequeña pausa técnica indispensable para dar tiempo al navegador de entregar las cookies
 time.sleep(0.2)
 
