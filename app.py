@@ -15,6 +15,7 @@ st.set_page_config(page_title="Sistema de Compras - Abastecedora Keops 2000", la
 # CONFIGURACIÓN DE GOOGLE CLOUD
 # ==========================================
 ID_CARPETA_DRIVE = "1M2jMjYGls4MX5skiNb1_5v5kEy8hdXm7" # <--- PEGA TU ID AQUÍ
+URL_SCRIPT = "https://script.google.com/macros/s/AKfycbzf9j-eAdP_QOR57AWgETaxf6ove5p8kXKicH_QxbIaZypoROK57Cl4fcSlkt3oheb1YQ/exec"
 NOMBRE_HOJA_SHEETS = "Base_Pedidos_Keops"
 
 @st.cache_resource
@@ -33,19 +34,35 @@ def conectar_google():
 
 sheet, drive_service = conectar_google()
 
-def subir_a_drive(archivo):
-    """Sube el archivo a Drive y retorna el enlace público"""
-    file_metadata = {'name': archivo.name, 'parents': [ID_CARPETA_DRIVE]}
-    media = MediaIoBaseUpload(io.BytesIO(archivo.getvalue()), mimetype=archivo.type, resumable=False)
-    file = drive_service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
-    
-    # Dar permiso de lectura general al archivo para que gerencia lo pueda ver al darle clic
-    drive_service.permissions().create(
-        fileId=file.get('id'), body={'type': 'anyone', 'role': 'reader'}
-    ).execute()
-    
-    return file.get('webViewLink')
+import urllib.request
+import base64
 
+def subir_a_drive(archivo):
+    """Sube el archivo a Drive usando Google Apps Script"""
+    file_bytes = archivo.getvalue()
+    base64_encoded = base64.b64encode(file_bytes).decode('utf-8')
+    
+    payload = {
+        "folder_id": ID_CARPETA_DRIVE,
+        "filename": archivo.name,
+        "mimeType": archivo.type,
+        "file_base64": base64_encoded
+    }
+    
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(URL_SCRIPT, data=data, headers={'Content-Type': 'application/json'})
+    
+    try:
+        with urllib.request.urlopen(req) as response:
+            resultado = json.loads(response.read().decode())
+            if resultado.get("status") == "success":
+                return resultado.get("url")
+            else:
+                st.error(f"Error de Google: {resultado.get('message')}")
+                return None
+    except Exception as e:
+        st.error(f"Error de conexión: {str(e)}")
+        return None
 def cargar_pedidos():
     registros = sheet.get_all_records()
     for r in registros:
