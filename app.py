@@ -238,4 +238,28 @@ elif seleccion == "Pedidos por Autorizar":
             with col_rech:
                 if st.button("❌ Rechazar", key=f"rech_{pedido.get('ID', '?')}"):
                     pedido["Estado"] = "Rechazado"
-                    pedido["historial"].append({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": st.session_state.usuario,
+                    pedido["historial"].append({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": st.session_state.usuario, "accion": "Rechazo", "detalle": comentario or "Rechazado sin comentarios"})
+                    actualizar_pedido_en_sheet(pedido)
+                    st.rerun()
+            st.divider()
+
+# ==========================================
+# VISTA: REPORTES
+# ==========================================
+elif seleccion == "Reportes de Movimientos":
+    st.title("📊 Reportes y Auditoría")
+    
+    st.markdown("Si deseas extraer los datos para contabilidad, abre la base de datos directa en Google Sheets:")
+    st.info("💡 **Abre tu Google Drive y busca el archivo 'Base_Pedidos_Keops' para ver la tabla completa y descargarla en Excel.**")
+    
+    if not pedidos:
+        st.info("No hay datos.")
+    else:
+        for p in reversed(pedidos):
+            # <--- Corregido: Previene colapsos si faltan datos en Excel
+            estado = str(p.get('Estado', 'Pendiente')).strip() 
+            color = "🟢" if estado == 'Autorizado' else "🔴" if estado == 'Rechazado' else "🟡"
+            
+            with st.expander(f"{color} #{p.get('ID', '?')} | {p.get('Proveedor', '?')} | ${float(p.get('Monto', 0)):,.2f} | {p.get('Procedencia', '?')}"):
+                for mov in p.get("historial", []):
+                    st.write(f"- *{mov['fecha']}* | **{mov['usuario']}** ({mov['accion']}): {mov['detalle']}")
