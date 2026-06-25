@@ -219,6 +219,9 @@ if seleccion == "Área de Compras":
 # ==========================================
 # VISTA: GERENCIA
 # ==========================================
+# ==========================================
+# VISTA: GERENCIA
+# ==========================================
 elif seleccion == "Pedidos por Autorizar":
     st.title("✅ Autorización de Pedidos")
     pendientes = [p for p in pedidos if p.get("Estado") == "Pendiente"]
@@ -229,7 +232,16 @@ elif seleccion == "Pedidos por Autorizar":
         for pedido in pendientes:
             st.markdown(f"### Pedido #{pedido.get('ID', '?')} - {pedido.get('Proveedor', '?')}")
             st.write(f"**Monto:** ${float(pedido.get('Monto', 0)):,.2f} | **Procedencia:** {pedido.get('Procedencia', '?')} | **Fecha:** {pedido.get('Fecha', '?')}")
-            st.markdown(f"[📄 **Hacer clic aquí para abrir el documento adjunto**]({pedido.get('Enlace_Archivo', '#')})")
+            
+            # --- NUEVO: VISOR DE DOCUMENTO INTEGRADO ---
+            enlace = str(pedido.get('Enlace_Archivo', '#'))
+            if "drive.google.com" in enlace:
+                # Transforma el enlace normal de Drive en un visor incrustado
+                enlace_preview = enlace.replace("/view", "/preview").split("?")[0]
+                st.components.v1.iframe(enlace_preview, height=600, scrolling=True)
+            else:
+                st.markdown(f"[📄 **Hacer clic aquí para abrir el documento adjunto**]({enlace})")
+            # -------------------------------------------
             
             comentario = st.text_area("Comentarios:", key=f"com_{pedido.get('ID', '?')}")
             
@@ -237,17 +249,28 @@ elif seleccion == "Pedidos por Autorizar":
             with col_aut:
                 if st.button("✔️ Autorizar", type="primary", key=f"aut_{pedido.get('ID', '?')}"):
                     pedido["Estado"] = "Autorizado"
-                    pedido["historial"].append({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": st.session_state.usuario, "accion": "Autorización", "detalle": comentario or "Sin comentarios"})
+                    nuevo_mov = {
+                        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                        "usuario": st.session_state.usuario, 
+                        "accion": "Autorización", 
+                        "detalle": comentario or "Sin comentarios"
+                    }
+                    pedido["historial"].append(nuevo_mov)
                     actualizar_pedido_en_sheet(pedido)
                     st.rerun()
             with col_rech:
                 if st.button("❌ Rechazar", key=f"rech_{pedido.get('ID', '?')}"):
                     pedido["Estado"] = "Rechazado"
-                    pedido["historial"].append({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": st.session_state.usuario, "accion": "Rechazo", "detalle": comentario or "Rechazado sin comentarios"})
+                    nuevo_mov = {
+                        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                        "usuario": st.session_state.usuario, 
+                        "accion": "Rechazo", 
+                        "detalle": comentario or "Rechazado sin comentarios"
+                    }
+                    pedido["historial"].append(nuevo_mov)
                     actualizar_pedido_en_sheet(pedido)
                     st.rerun()
             st.divider()
-
 # ==========================================
 # VISTA: REPORTES
 # ==========================================
