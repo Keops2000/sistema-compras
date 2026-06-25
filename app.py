@@ -1,4 +1,5 @@
 import streamlit as st
+import time
 import json
 from datetime import datetime
 import pandas as pd
@@ -7,6 +8,9 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import io
+import urllib.request
+import base64
+import os
 
 # Configuración de página
 st.set_page_config(page_title="Sistema de Compras - Abastecedora Keops 2000", layout="wide")
@@ -14,7 +18,7 @@ st.set_page_config(page_title="Sistema de Compras - Abastecedora Keops 2000", la
 # ==========================================
 # CONFIGURACIÓN DE GOOGLE CLOUD
 # ==========================================
-ID_CARPETA_DRIVE = "1M2jMjYGls4MX5skiNb1_5v5kEy8hdXm7" # <--- PEGA TU ID AQUÍ
+ID_CARPETA_DRIVE = "1M2jMjYGls4MX5skiNb1_5v5kEy8hdXm7" 
 URL_SCRIPT = "https://script.google.com/macros/s/AKfycbzf9j-eAdP_QOR57AWgETaxf6ove5p8kXKicH_QxbIaZypoROK57Cl4fcSlkt3oheb1YQ/exec"
 NOMBRE_HOJA_SHEETS = "Base_Pedidos_Keops"
 
@@ -33,9 +37,6 @@ def conectar_google():
     return sheet, drive_service
 
 sheet, drive_service = conectar_google()
-
-import urllib.request
-import base64
 
 def subir_a_drive(archivo):
     """Sube el archivo a Drive usando Google Apps Script"""
@@ -63,6 +64,7 @@ def subir_a_drive(archivo):
     except Exception as e:
         st.error(f"Error de conexión: {str(e)}")
         return None
+
 def cargar_pedidos():
     registros = sheet.get_all_records()
     for r in registros:
@@ -92,7 +94,6 @@ def actualizar_pedido_en_sheet(pedido_actualizado):
 # SISTEMA DE USUARIOS LOCAL (Temporal para el prototipo)
 # ==========================================
 ARCHIVO_USUARIOS = "usuarios.json"
-import os
 
 def cargar_usuarios():
     if os.path.exists(ARCHIVO_USUARIOS):
@@ -117,7 +118,7 @@ if not st.session_state.logged_in:
     
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        with st.form("form_pedido", clear_on_submit=True):
+        with st.form("login_form"):  # <--- Corregido: Este es el form de login normal
             st.subheader("Iniciar Sesión")
             usuario_input = st.text_input("Usuario")
             password_input = st.text_input("Contraseña", type="password")
@@ -166,7 +167,8 @@ if seleccion == "Área de Compras":
     tab1, tab2 = st.tabs(["📝 Crear Nuevo Pedido", "⚠️ Pedidos Rechazados"])
     
     with tab1:
-        with st.form("form_pedido"):
+        # <--- Corregido: Aquí es donde va el clear_on_submit=True
+        with st.form("form_pedido", clear_on_submit=True): 
             proveedor = st.text_input("Nombre del Proveedor")
             monto = st.number_input("Monto Total ($)", min_value=0.0, format="%.2f")
             proc_sel = st.selectbox("Procedencia del Pedido", ["Mercado Libre", "Amazon", "Centro", "Otra"])
@@ -188,7 +190,8 @@ if seleccion == "Área de Compras":
                         enlace_drive, "Pendiente", json.dumps(historial_inicial)
                     ])
                 st.success("¡Pedido enviado y respaldado en la nube exitosamente!")
-                st.rerun()
+                time.sleep(2)  # <--- Corregido: Da tiempo para leer el mensaje
+                st.rerun()     # <--- Corregido: Recarga para aplicar la limpieza y bajar los datos nuevos
 
     with tab2:
         rechazados = [p for p in pedidos if p.get("Estado") == "Rechazado"]
@@ -196,15 +199,16 @@ if seleccion == "Área de Compras":
             st.info("No hay pedidos rechazados.")
         else:
             for p in rechazados:
-                with st.expander(f"❌ Pedido #{p['ID']} - {p['Proveedor']} (Rechazado)"):
+                with st.expander(f"❌ Pedido #{p.get('ID', '?')} - {p.get('Proveedor', '?')} (Rechazado)"):
                     for h in p.get("historial", []):
                         if h["accion"] in ["Rechazo", "Comentario"]:
                             st.info(f"**{h['fecha']} - {h['usuario']}:** {h['detalle']}")
-                    if st.button("Reenviar a revisión", key=f"reenviar_{p['ID']}"):
+                    if st.button("Reenviar a revisión", key=f"reenviar_{p.get('ID', '?')}"):
                         p["Estado"] = "Pendiente"
                         p["historial"].append({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": st.session_state.usuario, "accion": "Reenvío", "detalle": "Pedido ajustado"})
                         actualizar_pedido_en_sheet(p)
                         st.success("Pedido reenviado.")
+                        time.sleep(1)
                         st.rerun()
 
 # ==========================================
@@ -218,42 +222,20 @@ elif seleccion == "Pedidos por Autorizar":
         st.success("No hay pedidos pendientes de revisión.")
     else:
         for pedido in pendientes:
-            st.markdown(f"### Pedido #{pedido['ID']} - {pedido['Proveedor']}")
-            st.write(f"**Monto:** ${float(pedido['Monto']):,.2f} | **Procedencia:** {pedido['Procedencia']} | **Fecha:** {pedido['Fecha']}")
-            st.markdown(f"[📄 **Hacer clic aquí para abrir el documento adjunto**]({pedido['Enlace_Archivo']})")
+            st.markdown(f"### Pedido #{pedido.get('ID', '?')} - {pedido.get('Proveedor', '?')}")
+            st.write(f"**Monto:** ${float(pedido.get('Monto', 0)):,.2f} | **Procedencia:** {pedido.get('Procedencia', '?')} | **Fecha:** {pedido.get('Fecha', '?')}")
+            st.markdown(f"[📄 **Hacer clic aquí para abrir el documento adjunto**]({pedido.get('Enlace_Archivo', '#')})")
             
-            comentario = st.text_area("Comentarios:", key=f"com_{pedido['ID']}")
+            comentario = st.text_area("Comentarios:", key=f"com_{pedido.get('ID', '?')}")
             
             col_aut, col_rech = st.columns(2)
             with col_aut:
-                if st.button("✔️ Autorizar", type="primary", key=f"aut_{pedido['ID']}"):
+                if st.button("✔️ Autorizar", type="primary", key=f"aut_{pedido.get('ID', '?')}"):
                     pedido["Estado"] = "Autorizado"
                     pedido["historial"].append({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": st.session_state.usuario, "accion": "Autorización", "detalle": comentario or "Sin comentarios"})
                     actualizar_pedido_en_sheet(pedido)
                     st.rerun()
             with col_rech:
-                if st.button("❌ Rechazar", key=f"rech_{pedido['ID']}"):
+                if st.button("❌ Rechazar", key=f"rech_{pedido.get('ID', '?')}"):
                     pedido["Estado"] = "Rechazado"
-                    pedido["historial"].append({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": st.session_state.usuario, "accion": "Rechazo", "detalle": comentario or "Rechazado sin comentarios"})
-                    actualizar_pedido_en_sheet(pedido)
-                    st.rerun()
-            st.divider()
-
-# ==========================================
-# VISTA: REPORTES
-# ==========================================
-elif seleccion == "Reportes de Movimientos":
-    st.title("📊 Reportes y Auditoría")
-    
-    # Botón para ir directo a la hoja de cálculo
-    st.markdown("Si deseas extraer los datos para contabilidad, abre la base de datos directa en Google Sheets:")
-    st.info("💡 **Abre tu Google Drive y busca el archivo 'Base_Pedidos_Keops' para ver la tabla completa y descargarla en Excel.**")
-    
-    if not pedidos:
-        st.info("No hay datos.")
-    else:
-        for p in reversed(pedidos):
-            color = "🟢" if p['Estado'] == 'Autorizado' else "🔴" if p['Estado'] == 'Rechazado' else "🟡"
-            with st.expander(f"{color} #{p['ID']} | {p['Proveedor']} | ${float(p['Monto']):,.2f} | {p['Procedencia']}"):
-                for mov in p.get("historial", []):
-                    st.write(f"- *{mov['fecha']}* | **{mov['usuario']}** ({mov['accion']}): {mov['detalle']}")
+                    pedido["historial"].append({"fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": st.session_state.usuario,
