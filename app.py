@@ -6,7 +6,6 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 import io
 import urllib.request
 import base64
@@ -24,12 +23,10 @@ NOMBRE_HOJA_SHEETS = "Base_Pedidos_Keops"
 
 @st.cache_resource
 def conectar_google():
-    # Leer las credenciales de la caja fuerte de Streamlit
     cred_dict = json.loads(st.session_state.get('secrets', st.secrets)["GOOGLE_CREDENTIALS"])
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(cred_dict, scopes=scopes)
     
-    # Conectar a Sheets y Drive
     gc = gspread.authorize(creds)
     sheet = gc.open(NOMBRE_HOJA_SHEETS).sheet1
     drive_service = build('drive', 'v3', credentials=creds)
@@ -83,7 +80,6 @@ def actualizar_pedido_en_sheet(pedido_actualizado):
     """Busca el ID en la hoja y actualiza la fila completa"""
     todos_los_ids = sheet.col_values(1) # Obtener todos los IDs (Columna A)
     try:
-        # +1 porque las listas de python empiezan en 0, y +1 por el encabezado = +2
         fila_indice = todos_los_ids.index(str(pedido_actualizado['ID'])) + 1
         
         historial_str = json.dumps(pedido_actualizado.get('historial', []))
@@ -96,6 +92,7 @@ def actualizar_pedido_en_sheet(pedido_actualizado):
         ]])
     except ValueError:
         st.error("Error: No se encontró el pedido en la base de datos.")
+
 # ==========================================
 # SISTEMA DE USUARIOS LOCAL (Temporal para el prototipo)
 # ==========================================
@@ -124,7 +121,7 @@ if not st.session_state.logged_in:
     
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        with st.form("login_form"):  # <--- Corregido: Este es el form de login normal
+        with st.form("login_form"): 
             st.subheader("Iniciar Sesión")
             usuario_input = st.text_input("Usuario")
             password_input = st.text_input("Contraseña", type="password")
@@ -173,7 +170,6 @@ if seleccion == "Área de Compras":
     tab1, tab2 = st.tabs(["📝 Crear Nuevo Pedido", "⚠️ Pedidos Rechazados"])
     
     with tab1:
-        # <--- Corregido: Aquí es donde va el clear_on_submit=True
         with st.form("form_pedido", clear_on_submit=True): 
             proveedor = st.text_input("Nombre del Proveedor")
             monto = st.number_input("Monto Total ($)", min_value=0.0, format="%.2f")
@@ -190,16 +186,15 @@ if seleccion == "Área de Compras":
                     
                     historial_inicial = [{"fecha": fecha_actual, "usuario": st.session_state.usuario, "accion": "Creación", "detalle": "Enviado a gerencia"}]
                     
-                    # Escribir fila en Google Sheets
                     sheet.append_row([
                         nuevo_id, fecha_actual, proveedor, monto, procedencia_final, 
                         enlace_drive, "Pendiente", json.dumps(historial_inicial)
                     ])
                 st.success("¡Pedido enviado y respaldado en la nube exitosamente!")
-                time.sleep(2)  # <--- Corregido: Da tiempo para leer el mensaje
-                st.rerun()     # <--- Corregido: Recarga para aplicar la limpieza y bajar los datos nuevos
+                time.sleep(2)
+                st.rerun()
 
-  with tab2:
+    with tab2:
         rechazados = [p for p in pedidos if p.get("Estado") == "Rechazado"]
         if not rechazados:
             st.info("No hay pedidos rechazados.")
@@ -213,7 +208,6 @@ if seleccion == "Área de Compras":
                     st.write("---")
                     st.markdown("**🔄 Corregir y Reenviar Pedido**")
                     
-                    # Formulario para subir la corrección
                     with st.form(key=f"form_reenvio_{p.get('ID', '?')}"):
                         nuevo_comentario = st.text_area("¿Qué cambios realizaste? (Ej. 'Se actualizó la cotización con el descuento'):")
                         nuevo_archivo = st.file_uploader("Sube el nuevo archivo corregido (PDF/Excel)", type=["pdf", "xlsx", "xls"])
@@ -244,38 +238,32 @@ if seleccion == "Área de Compras":
 # ==========================================
 # VISTA: GERENCIA
 # ==========================================
-
 elif seleccion == "Pedidos por Autorizar":
     st.title("✅ Autorización de Pedidos")
     
-    # AHORA BUSCAMOS TANTO LOS NUEVOS COMO LOS REENVIADOS
     pendientes = [p for p in pedidos if p.get("Estado") in ["Pendiente", "Pendiente (Reenviado)"]]
     
     if not pendientes:
         st.success("No hay pedidos pendientes de revisión.")
     else:
         for pedido in pendientes:
-            # SEÑAL VISUAL DE ADVERTENCIA PARA GERENCIA
             alerta_reenvio = " ⚠️ *(REENVIADO CORREGIDO)*" if pedido.get("Estado") == "Pendiente (Reenviado)" else ""
             st.markdown(f"### Pedido #{pedido.get('ID', '?')} - {pedido.get('Proveedor', '?')}{alerta_reenvio}")
             
             st.write(f"**Monto:** ${float(pedido.get('Monto', 0)):,.2f} | **Procedencia:** {pedido.get('Procedencia', '?')} | **Fecha:** {pedido.get('Fecha', '?')}")
             
-            # Mostrar a gerencia qué fue lo que se corrigió en el historial rápido
             if pedido.get("Estado") == "Pendiente (Reenviado)":
                 with st.expander("Ver notas de la corrección anterior"):
                     for mov in pedido.get("historial", []):
                         if mov["accion"] in ["Rechazo", "Reenvío"]:
                             st.write(f"- **{mov['accion']} ({mov['usuario']}):** {mov['detalle']}")
 
-            # --- VISOR DE DOCUMENTO INTEGRADO ---
             enlace = str(pedido.get('Enlace_Archivo', '#'))
             if "drive.google.com" in enlace:
                 enlace_preview = enlace.replace("/view", "/preview").split("?")[0]
                 st.components.v1.iframe(enlace_preview, height=600, scrolling=True)
             else:
                 st.markdown(f"[📄 **Hacer clic aquí para abrir el documento adjunto**]({enlace})")
-            # -------------------------------------------
             
             comentario = st.text_area("Comentarios:", key=f"com_{pedido.get('ID', '?')}")
             
@@ -319,7 +307,6 @@ elif seleccion == "Reportes de Movimientos":
         st.info("No hay datos.")
     else:
         for p in reversed(pedidos):
-            # <--- Corregido: Previene colapsos si faltan datos en Excel
             estado = str(p.get('Estado', 'Pendiente')).strip() 
             color = "🟢" if estado == 'Autorizado' else "🔴" if estado == 'Rechazado' else "🟡"
             
