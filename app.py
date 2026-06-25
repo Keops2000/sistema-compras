@@ -169,12 +169,12 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.usuario = usuario_valido['usuario']
                     st.session_state.rol = usuario_valido['rol']
-                    
+                  
                     # Si seleccionó recordar, guardar cookies válidas por 30 días
-                    if recordar_sesion:
-                        cookie_manager.set("keops_user", usuario_valido['usuario'], max_age=2592000)
-                        cookie_manager.set("keops_rol", usuario_valido['rol'], max_age=2592000)
-                    
+if recordar_sesion:
+    cookie_manager.set("keops_user", usuario_valido['usuario'], max_age=2592000, key="cookie_user")
+    cookie_manager.set("keops_rol", usuario_valido['rol'], max_age=2592000, key="cookie_rol")
+    
                     st.success("¡Acceso concedido!")
                     time.sleep(1)
                     st.rerun()
@@ -203,8 +203,8 @@ if st.sidebar.button("🚪 Cerrar Sesión"):
     st.session_state.usuario = ''
     st.session_state.rol = ''
     # Borrar las cookies físicas para destruir la sesión permanentemente
-    cookie_manager.delete("keops_user")
-    cookie_manager.delete("keops_rol")
+    cookie_manager.delete("keops_user", key="borrar_user")
+    cookie_manager.delete("keops_rol", key="borrar_rol")
     st.rerun()
 
 pedidos = cargar_pedidos()
